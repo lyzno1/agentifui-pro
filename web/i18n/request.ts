@@ -5,37 +5,45 @@ import { getRequestConfig } from "next-intl/server";
 
 import { defaultLocale, locales, namespaces, type Locale } from "./config";
 
-async function loadMessages(locale: Locale) {
-  const defaultMessages: Record<string, unknown> = {};
+// Flexible type to support any translation structure (strings, objects, arrays, ICU format, etc.)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TranslationValue = string | { [key: string]: any } | unknown[];
+type NamespaceMessages = Record<string, TranslationValue>;
 
-  if (locale !== defaultLocale) {
-    for (const namespace of namespaces) {
+async function importNamespaceMessages(
+  locale: Locale
+): Promise<NamespaceMessages> {
+  const entries = await Promise.all(
+    namespaces.map(async namespace => {
       try {
         const moduleMessages = (
-          await import(`../messages/${defaultLocale}/${namespace}.json`)
+          await import(`../messages/${locale}/${namespace}.json`)
         ).default;
-        defaultMessages[namespace] = moduleMessages;
+        return [namespace, moduleMessages] as const;
       } catch {
-        defaultMessages[namespace] = {};
+        if (process.env.NODE_ENV === "development") {
+          console.warn(
+            `Missing translation file for ${locale}/${namespace}.json`
+          );
+        }
+        return [namespace, {}] as const;
       }
-    }
+    })
+  );
+  return Object.fromEntries(entries);
+}
+
+async function loadMessages(locale: Locale) {
+  const userMessages = await importNamespaceMessages(locale);
+
+  if (locale === defaultLocale) {
+    return userMessages;
   }
 
-  const userMessages: Record<string, unknown> = {};
-  for (const namespace of namespaces) {
-    try {
-      const moduleMessages = (
-        await import(`../messages/${locale}/${namespace}.json`)
-      ).default;
-      userMessages[namespace] = moduleMessages;
-    } catch {
-      userMessages[namespace] = {};
-    }
-  }
-
-  return locale !== defaultLocale
-    ? deepmerge(defaultMessages, userMessages)
-    : userMessages;
+  const defaultMessages = await importNamespaceMessages(defaultLocale);
+  return deepmerge(defaultMessages, userMessages, {
+    arrayMerge: (_, sourceArray) => sourceArray, // Override arrays completely with user translations (no merging)
+  });
 }
 
 async function getLocaleFromStorage(): Promise<Locale> {

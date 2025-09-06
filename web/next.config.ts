@@ -8,6 +8,14 @@ const nextConfig: NextConfig = {
     // Set workspace root to resolve monorepo lockfile warning
     root: require("path").resolve(__dirname, "../"),
   },
+  // Production optimizations: remove console logs except errors
+  ...(process.env.NODE_ENV === "production" && {
+    compiler: {
+      removeConsole: {
+        exclude: ["error", "warn"], // Keep console.error and console.warn in production
+      },
+    },
+  }),
 };
 
 // Conditionally enable bundle analyzer (only when not using Turbopack)
